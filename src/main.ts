@@ -46,6 +46,9 @@ async function start() {
   const app = new App(device, context, format, canvas, showHour, startHour);
   await app.init(seed);
   root.classList.add('is-ready');
+  // tell a page embedding the pool (brandonlai.me/beta) that it's drawing, so
+  // it can swap its still for the live frame; nothing else is shared
+  if (window.parent !== window) window.parent.postMessage({ rockpool: 'ready' }, '*');
   Object.assign(window, { rockpool: app });
 
   const button = document.querySelector<HTMLButtonElement>('.chrome__sound');
