@@ -2,7 +2,8 @@ import { App, type HourInfo } from './app';
 
 const root = document.documentElement;
 const params = new URLSearchParams(location.search);
-if (params.has('clean')) root.classList.add('is-clean');
+if (params.has('clean') || params.has('embed')) root.classList.add('is-clean');
+if (params.has('embed')) root.classList.add('is-embed');
 
 const canvas = document.querySelector<HTMLCanvasElement>('.canvas')!;
 

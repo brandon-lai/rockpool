@@ -24,6 +24,9 @@ html, body {
   touch-action: none;
   cursor: crosshair;
 }
+/* embedded: let scrolls and vertical swipes pass through to the host page */
+.is-embed, .is-embed body { overscroll-behavior: auto; }
+.is-embed .canvas { touch-action: pan-y; }
 .about {
   position: absolute;
   width: 1px;

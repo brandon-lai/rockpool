@@ -90,6 +90,10 @@ export class App {
 
   private bindInput() {
     const c = this.canvas;
+    // ?embed: the pool sits inside another page (brandonlai.me/beta). Touching
+    // and hovering the water still work, but scrolling belongs to the host page,
+    // so the wheel, arrow keys and two-finger swipe leave the clock alone.
+    const embedded = new URLSearchParams(location.search).has('embed');
     c.addEventListener('pointermove', (e) => this.onPointer(e));
     c.addEventListener('pointerdown', (e) => {
       if (!e.isPrimary) return;
@@ -109,6 +113,7 @@ export class App {
       this.pointer.active = false;
       this.pointer.world = null;
     });
+    if (embedded) return;
     addEventListener(
       'wheel',
       (e) => {
