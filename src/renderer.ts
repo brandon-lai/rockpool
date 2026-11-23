@@ -1,4 +1,4 @@
-import { CAUSTIC, MESH, SHADOW, SIM, TERRAIN, wgslConstants } from './config';
+import { CAUSTIC, EMBED, MESH, SHADOW, SIM, TERRAIN, wgslConstants } from './config';
 import type { Kind, Layouts } from './kind';
 import utilCode from './shaders/util.wgsl?raw';
 import frameCode from './shaders/frame.wgsl?raw';
@@ -15,7 +15,7 @@ export const SCENE_PRELUDE = PRELUDE + frameCode + lightingCode;
 
 export const FRAME_FLOATS = 96;
 export const SIM_FLOATS = 88;
-const BLOOM_LEVELS = 5;
+const BLOOM_LEVELS = EMBED ? 3 : 5;
 
 interface Target {
   texture: GPUTexture;
@@ -74,7 +74,9 @@ export class Renderer {
   private upPipeline: GPURenderPipeline;
   private compositePipeline: GPURenderPipeline;
   private postBuffers: GPUBuffer[] = [];
+  private postScratch = new Float32Array(12);
   private postGroups: { down: GPUBindGroup[]; up: GPUBindGroup[]; composite: GPUBindGroup } | null = null;
+  private renderCount = 0;
 
   private sceneColor!: Target;
   private sceneDist!: Target;
@@ -193,15 +195,17 @@ export class Renderer {
     this.simGroups = [simGroup(stateA, stateB), simGroup(stateB, stateA)];
     this.simUniformGroup = d.createBindGroup({ layout: simUniformLayout, entries: [{ binding: 0, resource: { buffer: this.simBuffer } }] });
 
-    // Caustics.
+    // Caustics: single pass in ?embed mode, 3-channel RGB dispersion fullscreen.
     const causticModule = d.createShaderModule({ label: 'caustics', code: PRELUDE + frameCode + causticsCode });
     const [cc, cr] = CAUSTIC.grid;
     const causticLayout = d.createPipelineLayout({ bindGroupLayouts: [this.layouts.frame] });
-    const channels: [number, number][] = [
-      [1.329, GPUColorWrite.RED],
-      [1.333, GPUColorWrite.GREEN],
-      [1.338, GPUColorWrite.BLUE],
-    ];
+    const channels: [number, number][] = EMBED
+      ? [[1.333, GPUColorWrite.ALL]]
+      : [
+          [1.329, GPUColorWrite.RED],
+          [1.333, GPUColorWrite.GREEN],
+          [1.338, GPUColorWrite.BLUE],
+        ];
     this.causticPipelines = channels.map(([ior, writeMask]) =>
       d.createRenderPipeline({
         label: 'caustics',
@@ -425,23 +429,29 @@ export class Renderer {
 
   private writePost(time: number, exposure: number) {
     const q = this.device.queue;
+    const b = this.postScratch;
     let w = this.width;
     let h = this.height;
     for (let i = 0; i < BLOOM_LEVELS; i++) {
-      q.writeBuffer(this.postBuffers[i], 0, new Float32Array([0, 0, 0, 0, 1 / w, 1 / h, i === 0 ? 1.4 : 0, time, 1, 1, 0, 0]));
+      b[0] = 0; b[1] = 0; b[2] = 0; b[3] = 0;
+      b[4] = 1 / w; b[5] = 1 / h; b[6] = i === 0 ? 1.4 : 0; b[7] = time;
+      b[8] = 1; b[9] = 1; b[10] = 0; b[11] = 0;
+      q.writeBuffer(this.postBuffers[i], 0, b);
       w = Math.max(1, Math.floor(w / 2));
       h = Math.max(1, Math.floor(h / 2));
     }
     for (let i = BLOOM_LEVELS - 2; i >= 0; i--) {
       const sw = Math.max(1, Math.floor(this.width / 2 ** (i + 2)));
       const sh = Math.max(1, Math.floor(this.height / 2 ** (i + 2)));
-      q.writeBuffer(this.postBuffers[BLOOM_LEVELS + i], 0, new Float32Array([0, 0, 0, 0, 1 / sw, 1 / sh, 0, time, 1, 1, 0, 0]));
+      b[0] = 0; b[1] = 0; b[2] = 0; b[3] = 0;
+      b[4] = 1 / sw; b[5] = 1 / sh; b[6] = 0; b[7] = time;
+      b[8] = 1; b[9] = 1; b[10] = 0; b[11] = 0;
+      q.writeBuffer(this.postBuffers[BLOOM_LEVELS + i], 0, b);
     }
-    q.writeBuffer(
-      this.postBuffers[BLOOM_LEVELS * 2],
-      0,
-      new Float32Array([exposure, 0.06, 0.55, 0.022, 1 / this.width, 1 / this.height, 0, time, 1.06, 1.04, 0, 0]),
-    );
+    b[0] = exposure; b[1] = 0.06; b[2] = 0.55; b[3] = 0.022;
+    b[4] = 1 / this.width; b[5] = 1 / this.height; b[6] = 0; b[7] = time;
+    b[8] = 1.06; b[9] = 1.04; b[10] = 0; b[11] = 0;
+    q.writeBuffer(this.postBuffers[BLOOM_LEVELS * 2], 0, b);
   }
 
   render(sim: SimInput, time: number, exposure: number) {
@@ -489,8 +499,8 @@ export class Renderer {
       pass.end();
     }
 
-    // Sun shadow map.
-    {
+    // Sun shadow map: in ?embed the sun is fixed, so refreshing every 3rd frame keeps creature shadows smooth at 1/3 the cost.
+    if (!EMBED || this.renderCount % 3 === 0) {
       const pass = enc.beginRenderPass({
         label: 'shadow',
         colorAttachments: [],
@@ -504,6 +514,7 @@ export class Renderer {
       for (const k of this.kinds) k.draw(pass, true);
       pass.end();
     }
+    this.renderCount++;
 
     // Scene: rock, bed and creatures.
     {

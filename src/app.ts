@@ -1,4 +1,4 @@
-import { SHADOW, SIM } from './config';
+import { EMBED, SHADOW, SIM } from './config';
 import { Ground } from './ground';
 import { clockLabel, lookAt, tideAt, tideLabel, type Look } from './look';
 import { clamp, damp, invert, lerp, lookAt as viewMatrix, multiply, normalize, ortho, perspective, transform, type Vec3 } from './math';
@@ -35,6 +35,8 @@ export class App {
   time = 0;
   private frameIndex = 0;
   private last = 0;
+  private raf = 0;
+  private paused = false;
   private look: Look;
   private eye: Vec3 = [0, 4, 4];
   private viewProj = new Float32Array(16);
@@ -83,7 +85,19 @@ export class App {
     this.life = new Life(this.renderer, this.ground, seed);
     this.bindInput();
     this.last = performance.now();
-    requestAnimationFrame(this.loop);
+    this.raf = requestAnimationFrame(this.loop);
+  }
+
+  setPaused(paused: boolean) {
+    if (this.paused === paused) return;
+    this.paused = paused;
+    if (paused) {
+      cancelAnimationFrame(this.raf);
+      this.raf = 0;
+    } else {
+      this.last = performance.now();
+      this.raf = requestAnimationFrame(this.loop);
+    }
   }
 
   // ---------------------------------------------------------------- input
@@ -113,7 +127,13 @@ export class App {
       this.pointer.active = false;
       this.pointer.world = null;
     });
-    if (embedded) return;
+    if (embedded) {
+      addEventListener('message', (e) => {
+        if (e.data?.rockpool === 'pause') this.setPaused(true);
+        else if (e.data?.rockpool === 'resume') this.setPaused(false);
+      });
+      return;
+    }
     addEventListener(
       'wheel',
       (e) => {
@@ -179,18 +199,26 @@ export class App {
   // ---------------------------------------------------------------- frame
 
   private loop = (now: number) => {
+    if (this.paused) {
+      this.raf = 0;
+      return;
+    }
+    this.raf = requestAnimationFrame(this.loop);
     const raw = (now - this.last) / 1000;
+    // Cap embedded tile at ~30fps so it never fights the host page's scroll animation.
+    if (EMBED && raw < 1 / 32) return;
     this.last = now;
-    const dt = Math.min(raw, 1 / 30);
+    const dt = Math.min(raw, 1 / 24);
     this.adaptResolution(raw);
     this.frame(dt);
-    requestAnimationFrame(this.loop);
   };
 
   private adaptResolution(raw: number) {
-    if (raw > 1 / 42) this.slowFrames++;
+    const slowThreshold = EMBED ? 1 / 24 : 1 / 42;
+    const fastThreshold = EMBED ? 1 / 29 : 1 / 58;
+    if (raw > slowThreshold) this.slowFrames++;
     else this.slowFrames = Math.max(0, this.slowFrames - 1);
-    if (raw < 1 / 58) this.fastFrames++;
+    if (raw < fastThreshold) this.fastFrames++;
     else this.fastFrames = 0;
     if (this.slowFrames > 40 && this.renderScale > 0.55) {
       this.renderScale = Math.max(0.55, this.renderScale * 0.85);
@@ -210,7 +238,7 @@ export class App {
     this.look = lookAt(this.hour);
     this.reportHour();
 
-    const dpr = Math.min(devicePixelRatio || 1, 2);
+    const dpr = Math.min(devicePixelRatio || 1, EMBED ? 1.25 : 2);
     const cw = Math.max(1, Math.round(this.canvas.clientWidth * dpr));
     const ch = Math.max(1, Math.round(this.canvas.clientHeight * dpr));
     if (this.canvas.width !== cw || this.canvas.height !== ch) {
@@ -239,7 +267,9 @@ export class App {
     });
 
     this.writeFrame(tide);
-    const substeps = Math.max(1, Math.ceil(dt / 0.0052));
+    const stepBudget = EMBED ? 0.009 : 0.0052;
+    const maxSubsteps = EMBED ? 3 : 6;
+    const substeps = Math.min(maxSubsteps, Math.max(1, Math.ceil(dt / stepBudget)));
     this.writeSim(dt, substeps, tide);
     this.renderer.render({ dt, substeps, data: this.renderer.simData }, this.time, this.look.exposure * this.revealed);
     this.drops.length = 0;

@@ -2,6 +2,9 @@
 // at -z (top of the screen); the pool sits in the middle, joined to the sea
 // by a narrow gully.
 
+export const EMBED =
+  typeof location !== 'undefined' && new URLSearchParams(location.search).has('embed');
+
 export const WATER_LEVEL = 0;
 
 export const TERRAIN = {
@@ -13,23 +16,27 @@ export const TERRAIN = {
 export const SIM = {
   center: [0, -0.5] as const,
   half: [2.6, 2.4] as const,
-  size: [416, 384] as const,
+  size: (EMBED ? [240, 224] : [416, 384]) as readonly [number, number],
 };
 
 export const CAUSTIC = {
-  size: [832, 768] as const,
-  grid: [288, 266] as const,
+  size: (EMBED ? [448, 416] : [832, 768]) as readonly [number, number],
+  grid: (EMBED ? [160, 148] : [288, 266]) as readonly [number, number],
   plane: -0.22,
   margin: 0.35,
 };
 
-export const SHADOW = { size: 2048, center: [0, -0.6] as const, half: 4.6 };
+export const SHADOW = {
+  size: EMBED ? 1024 : 2048,
+  center: [0, -0.6] as const,
+  half: 4.6,
+};
 
 export const COUNTS = { fish: 7, crabs: 4, anemones: 13, stars: 3, weeds: 84 };
 
 export const MESH = {
-  terrain: [640, 468] as const,
-  terrainShadow: [256, 188] as const,
+  terrain: (EMBED ? [320, 234] : [640, 468]) as readonly [number, number],
+  terrainShadow: (EMBED ? [144, 108] : [256, 188]) as readonly [number, number],
 };
 
 /** WGSL constants derived from the config, prepended to every shader. */
