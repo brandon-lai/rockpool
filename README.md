@@ -1,6 +1,6 @@
-# Rockpool
+# Tidepool
 
-A rock pool on the shore, seen from above, rendered live in raw WebGPU and
+A tide pool on the shore, seen from above, rendered live in raw WebGPU and
 WGSL. Blennies dart for cover and come back to inspect a still hand, hermit
 crabs pull into their shells, anemones close when touched, and every so
 often the sea surges in through the gully. Scroll (or swipe with two
